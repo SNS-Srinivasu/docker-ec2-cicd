@@ -1,0 +1,181 @@
+# Mini Project: Deploy Dockerized App to EC2 via GitHub Actions
+
+This guide helps you deploy a Dockerized application to an Amazon Linux 2 EC2 instance using GitHub Actions.
+
++-----------------------------------------------------------+
+|                    Developer (You)                        |
+|    - Pushes code to GitHub                                |
++------------------------+----------------------------------+
+                         |
+                         v
++-----------------------------------------------------------+
+|                  GitHub Repository                        |
+|   - Contains application files:                           |
+|     * Dockerfile                                          |
+|     * index.html, app.js, style.css                       |
+|   - Contains GitHub Actions workflow:                     |
+|     * .github/workflows/deploy.yml                        |
++------------------------+----------------------------------+
+                         |
+                         v
++-----------------------------------------------------------+
+|                  GitHub Actions Workflow                  |
+|   1. Triggered on push to `main` branch                   |
+|   2. Uses `appleboy/scp-action` to copy files to EC2      |
+|   3. Uses `appleboy/ssh-action` to SSH & run Docker       |
+|                                                           |
+|   --> Secrets used:                                       |
+|       * EC2_HOST                                          |
+|       * EC2_USER                                          |
+|       * EC2_SSH_KEY                                       |
+|       * DOCKER_IMAGE_NAME                                 |
++------------------------+----------------------------------+
+                         |
+                         v (SSH + SCP)
++-----------------------------------------------------------+
+|                      EC2 Instance                         |
+|   - OS: Amazon Linux 2                                    |
+|   - Docker installed                                      |
+|   - Receives app code via SCP                             |
+|   - Executes Docker build and run                         |
+|   - Exposes app on port 80                                |
++------------------------+----------------------------------+
+                         |
+                         v
++-----------------------------------------------------------+
+|                 Running Docker Container                  |
+|   - Built from your Dockerfile                            |
+|   - Hosts web application (index.html, etc.)              |
+|   - Runs as:                                              |
+|     docker run -d -p 80:80 --name myapp myapp:latest      |
++------------------------+----------------------------------+
+                         |
+                         v
++-----------------------------------------------------------+
+|                  Web Browser / User                       |
+|   - Accesses the app via:                                 |
+|     http://<EC2_PUBLIC_IP>                                |
++-----------------------------------------------------------+
+
+
+
+
+---
+
+## Prerequisites
+
+- AWS EC2 instance (Amazon Linux 2)
+- `.pem` SSH key to connect to EC2
+- Dockerfile and app files in a GitHub repo
+- GitHub Actions enabled in the repo
+
+---
+
+## Step-by-Step Guide
+
+### Step 1: Set Up EC2 Instance
+
+1. Launch an EC2 instance with Amazon Linux 2
+2. Allow SSH (port 22) and HTTP (port 80) in the security group
+3. Connect to your instance via SSH using the `.pem` file
+4. Install Docker:
+   ```
+   sudo yum update -y
+   sudo amazon-linux-extras install docker -y
+   sudo service docker start
+   sudo usermod -aG docker ec2-user
+   ```
+
+---
+
+### Step 2: Prepare Your GitHub Repo
+
+1. Ensure your repo has:
+   ```
+   Dockerfile
+   index.html
+   app.js
+   style.css
+   ```
+
+2. Create a GitHub Actions workflow:
+   - Path: `.github/workflows/deploy.yml`
+
+3. Paste the following into `deploy.yml`:
+
+```yaml
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Copy files to EC2
+        uses: appleboy/scp-action@v0.1.6
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "."
+          target: "~/my-app"
+
+      - name: Run Docker on EC2
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd ~/my-app
+            docker build -t ${{ secrets.DOCKER_IMAGE_NAME }} .
+            docker stop myapp || true && docker rm myapp || true
+            docker run -d -p 80:80 --name myapp ${{ secrets.DOCKER_IMAGE_NAME }}
+```
+
+---
+
+### Step 3: Add GitHub Secrets
+
+Go to: GitHub repo → Settings → Secrets → Actions
+
+Add these secrets:
+
+- `EC2_HOST` — Public IP or DNS of EC2
+- `EC2_USER` — Usually `ec2-user`
+- `EC2_SSH_KEY` — Contents of your `.pem` file (private key)
+- `DOCKER_IMAGE_NAME` — e.g., `myapp:latest`
+
+---
+
+### Step 4: Deploy Your App
+
+1. Push code to the `main` branch
+2. GitHub Actions will:
+   - Upload files to EC2
+   - Build the Docker image
+   - Run the container on port 80
+
+---
+
+### Step 5: View App in Browser
+
+1. Open EC2 dashboard → find public IPv4 address
+2. In your browser, go to:
+   ```
+   http://<your-ec2-ip>
+   ```
+
+3. If it doesn’t load, allow HTTP (port 80) in security group
+
+---
+
+🎉 Done! Your app is now live on EC2.
